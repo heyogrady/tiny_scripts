@@ -1,0 +1,9 @@
+#!/usr/bin/env ruby
+
+require_relative '../shared/common.rb'
+
+#
+# Use github_changelog_generator to generate a changelog
+#
+
+execute_cmd "github_changelog_generator --max-issues 500 --future-release=#{ARGV.join(' ')}"

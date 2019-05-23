@@ -24,19 +24,7 @@ def update_master
   execute_cmd 'git pull'
 end
 
-def rebase_current_branch branch_name
-  execute_cmd "git checkout #{branch_name}"
-  execute_cmd 'git rebase master'
-  execute_cmd 'git push'
-end
-
-def update_current_branch
-  execute_cmd 'git pull'
-end
-
-current_branch_name = branch_name
-
-update_current_branch
 update_master
-rebase_current_branch(current_branch_name) unless current_branch_name == 'master'
-
+execute_cmd "git checkout -b #{ARGV.join(' ')}"
+execute_cmd "bin/setup"
+execute_cmd "bin/server"

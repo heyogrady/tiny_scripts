@@ -1,0 +1,39 @@
+#!/bin/bash
+#
+# start-the-day.sh
+# I use this script to start all the programs I need to "start my day"
+#
+# v1.7 2013-01-12 by bill@wellingtonnet.net
+
+source ~/tiny_scripts/scripts/switch
+
+switch 1
+open -a "Slack" -F -g
+sleep 3
+
+switch 2
+open -a "ChronoMate" -F -g
+sleep 3
+
+switch 3
+open -a "Google Chrome" -F -g
+sleep 3
+
+switch 4
+open -a "GitHub Desktop" -F -g
+open -a "iTerm" -F -g
+sleep 6
+
+switch 5
+open -a "Sublime Text" -F -g
+sleep 3
+
+switch 6
+open -a "Google Chrome" -F -g
+sleep 3
+
+switch 7
+open -a "Safari" -F -g
+sleep 3
+
+switch 3
