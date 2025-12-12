@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "SlashCommand(/compound-engineering:workflows:work:*)",
+      "Bash(git-wt:*)",
+      "Bash(git-wtc:*)",
+      "Bash(git worktree:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
