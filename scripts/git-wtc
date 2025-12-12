@@ -1,0 +1,40 @@
+#!/usr/bin/env ruby
+
+# git-wtc: Create a new branch with its own worktree
+#
+# Usage:
+#   git wtc <new-branch-name>
+#
+# Examples:
+#   git wtc feature-new-thing
+#   git wtc fix/bug-123
+
+require_relative '../shared/worktree'
+
+branch = ARGV[0]
+
+if branch.nil?
+  puts "Usage: git wtc <new-branch-name>"
+  puts ""
+  puts "Creates a new branch with its own worktree in .worktrees/<branch>/"
+  exit 1
+end
+
+# Check if branch already exists
+if branch_exists_local?(branch) || branch_exists_remote?(branch)
+  puts "Error: Branch '#{branch}' already exists."
+  puts "Use 'git wt #{branch}' to switch to it."
+  exit 1
+end
+
+# Check if worktree already exists (shouldn't happen, but safety check)
+if worktree_exists?(branch)
+  puts "Error: Worktree already exists for '#{branch}'"
+  switch_to_worktree(branch)
+  exit 1
+end
+
+# Create new branch with worktree
+puts "Creating new branch '#{branch}' with worktree..."
+create_worktree(branch, new_branch: true)
+switch_to_worktree(branch)

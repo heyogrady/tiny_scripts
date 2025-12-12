@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+
+# git-wt: Switch to a branch's worktree, creating it if needed
+#
+# Usage:
+#   git wt <branch-name>    # Switch to existing branch's worktree
+#   git wt                  # List all worktrees
+#
+# Examples:
+#   git wt feature-xyz      # Switch to feature-xyz worktree
+#   git wt origin/main      # Switch to main branch worktree
+
+require_relative '../shared/worktree'
+
+branch = ARGV[0]
+
+# No args - list worktrees
+if branch.nil?
+  puts "Current worktrees:"
+  list_worktrees.each do |wt|
+    puts "  #{wt[:branch] || '(detached)'}: #{wt[:path]}"
+  end
+  exit 0
+end
+
+# Strip origin/ prefix if present
+branch = branch.sub(/^origin\//, '')
+
+# Check if worktree already exists
+if worktree_exists?(branch)
+  puts "Switching to existing worktree for '#{branch}'"
+  switch_to_worktree(branch)
+  exit 0
+end
+
+# Check if branch exists (local or remote)
+unless branch_exists_local?(branch) || branch_exists_remote?(branch)
+  puts "Error: Branch '#{branch}' does not exist locally or on remote."
+  puts "Use 'git wtc #{branch}' to create a new branch with worktree."
+  exit 1
+end
+
+# Create worktree for existing branch
+puts "Creating worktree for existing branch '#{branch}'..."
+create_worktree(branch, new_branch: false)
+switch_to_worktree(branch)
