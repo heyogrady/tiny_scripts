@@ -1,0 +1,13 @@
+#!/bin/bash
+# Forced command for Claude SSH sessions from Android/Termius
+# Add to authorized_keys with: command="claude-attach" ssh-ed25519 ...
+#
+# When Claude Code finishes, the hook writes the window number to /tmp/claude-target
+# This script reads it and attaches to that tmux window
+
+WINDOW=$(cat /tmp/claude-target 2>/dev/null || echo 1)
+SESSION="claude"
+
+# Attach to session and select window
+# -d detaches other clients so we can take over
+exec tmux attach-session -d -t "$SESSION" \; select-window -t "$WINDOW"

@@ -1,0 +1,36 @@
+#!/bin/bash
+# Claude Code hook - runs on Stop and Notification events
+# Sends push notification via ntfy and stores target window for SSH forced command
+#
+# Usage: Configure in ~/.claude/settings.json under hooks.Stop and hooks.Notification
+
+cat > /dev/null  # Consume stdin from Claude Code
+
+if [ -n "$TMUX" ]; then
+    WIN=$(tmux display-message -p '#I')
+    PROJECT=$(basename "$(tmux display-message -p '#{pane_current_path}')")
+    TITLE="✅ Done: $PROJECT"
+else
+    WIN="1"
+    TITLE="✅ Claude Complete"
+fi
+
+# Write target window for SSH forced command (claude-attach script)
+echo "$WIN" > /tmp/claude-target
+
+# Send notification via ntfy
+# Change topic name if desired (must match ntfy subscription on phone)
+TOPIC="patrick-claude"
+
+# Your Mac's Tailscale IP - tapping notification opens Termius
+MAC_USER="patrickogrady"
+MAC_HOST="100.122.215.101"
+
+curl -s \
+    -H "Title: $TITLE" \
+    -H "Priority: high" \
+    -H "Click: ssh://$MAC_USER@$MAC_HOST" \
+    -d "Window $WIN ready - tap to connect" \
+    "ntfy.sh/$TOPIC" > /dev/null 2>&1 &
+
+exit 0

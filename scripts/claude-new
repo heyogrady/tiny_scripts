@@ -1,0 +1,16 @@
+#!/bin/bash
+# Create a new tmux window in the 'claude' session and start Claude Code
+# Usage: claude-new [project-name]
+#
+# If no project name given, uses the current directory name
+
+PROJECT="${1:-$(basename "$(pwd)")}"
+SESSION="claude"
+
+# Create session if it doesn't exist
+tmux has-session -t "$SESSION" 2>/dev/null || tmux new-session -d -s "$SESSION" -n main
+
+# Create new window with project name and start claude
+tmux new-window -t "$SESSION" -n "$PROJECT" "cd '$(pwd)' && claude"
+
+echo "Created window '$PROJECT' in session '$SESSION'"
