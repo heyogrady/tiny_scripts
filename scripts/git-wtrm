@@ -1,0 +1,102 @@
+#!/usr/bin/env ruby
+
+# git-wtrm: Remove worktree(s) and run cleanup hooks
+#
+# Usage:
+#   git wtrm <worktree-name>   # Remove single worktree
+#   git wtrm --merged          # Remove all worktrees with merged PRs
+
+require_relative '../shared/worktree'
+require 'json'
+
+def remove_merged_worktrees
+  worktrees = list_worktrees.select { |wt| wt[:path]&.include?('.worktrees') }
+
+  if worktrees.empty?
+    puts 'No worktrees found'
+    exit 0
+  end
+
+  # Check each worktree's PR status
+  to_remove = []
+  worktrees.each do |wt|
+    branch = wt[:branch]
+    next if branch.nil?
+
+    # Check PR status using gh CLI
+    pr_json = `gh pr list --head "#{branch}" --state all --json state --limit 1 2>/dev/null`.strip
+
+    if pr_json.empty? || pr_json == '[]'
+      # No PR - check if remote branch exists
+      remote_exists = system("git ls-remote --heads origin #{branch} > /dev/null 2>&1")
+      to_remove << { worktree: wt, reason: 'Remote branch deleted' } unless remote_exists
+    else
+      pr_data = JSON.parse(pr_json).first
+      case pr_data['state']
+      when 'MERGED'
+        to_remove << { worktree: wt, reason: 'PR merged' }
+      when 'CLOSED'
+        to_remove << { worktree: wt, reason: 'PR closed' }
+      end
+    end
+  end
+
+  if to_remove.empty?
+    puts 'No worktrees to clean up. All have open PRs or active branches.'
+    exit 0
+  end
+
+  puts "Found #{to_remove.length} worktree(s) to remove:"
+  to_remove.each do |item|
+    name = File.basename(item[:worktree][:path])
+    puts "  #{name} (#{item[:reason]})"
+  end
+  puts
+  print 'Proceed? [y/N] '
+
+  response = $stdin.gets&.strip&.downcase
+  unless response == 'y'
+    puts 'Aborted.'
+    exit 0
+  end
+
+  to_remove.each do |item|
+    name = File.basename(item[:worktree][:path])
+    warn "Removing #{name}..."
+    remove_worktree(name)
+  end
+
+  puts "Done. Removed #{to_remove.length} worktree(s)."
+end
+
+def remove_single_worktree(worktree_name)
+  # Check worktree exists
+  unless worktree_exists?(worktree_name)
+    warn "Error: Worktree '#{worktree_name}' does not exist"
+    exit 1
+  end
+
+  # Check not in current directory
+  current_path = Dir.pwd
+  worktree_full_path = File.expand_path(worktree_path(worktree_name))
+  if current_path.start_with?(worktree_full_path)
+    warn 'Error: Cannot remove current worktree'
+    warn "Please 'cd' out of this directory first"
+    exit 1
+  end
+
+  warn "Removing worktree '#{worktree_name}'..."
+  remove_worktree(worktree_name)
+  warn 'Done'
+end
+
+# Main
+if ARGV[0] == '--merged'
+  remove_merged_worktrees
+elsif ARGV[0].nil?
+  puts 'Usage: git wtrm <worktree-name>'
+  puts '       git wtrm --merged  # Remove all merged/closed worktrees'
+  exit 1
+else
+  remove_single_worktree(ARGV[0])
+end

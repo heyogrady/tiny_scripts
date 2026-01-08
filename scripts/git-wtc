@@ -22,19 +22,19 @@ end
 
 # Check if branch already exists
 if branch_exists_local?(branch) || branch_exists_remote?(branch)
-  puts "Error: Branch '#{branch}' already exists."
-  puts "Use 'git wt #{branch}' to switch to it."
+  warn "Error: Branch '#{branch}' already exists."
+  warn "Use 'git wt #{branch}' to switch to it."
   exit 1
 end
 
 # Check if worktree already exists (shouldn't happen, but safety check)
 if worktree_exists?(branch)
-  puts "Error: Worktree already exists for '#{branch}'"
+  warn "Error: Worktree already exists for '#{branch}'"
   switch_to_worktree(branch)
   exit 1
 end
 
 # Create new branch with worktree
-puts "Creating new branch '#{branch}' with worktree..."
+warn "Creating new branch '#{branch}' with worktree..."
 create_worktree(branch, new_branch: true)
 switch_to_worktree(branch)

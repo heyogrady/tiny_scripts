@@ -52,6 +52,14 @@ def ensure_worktrees_dir
   end
 end
 
+def call_hook(hook_name, *args)
+  hook_path = File.join(git_root, '.worktree-hooks', hook_name)
+  return unless File.executable?(hook_path)
+
+  warn "Calling #{hook_name} hook..."
+  system(hook_path, *args)
+end
+
 def create_worktree(branch_name, new_branch: false)
   ensure_worktrees_dir
   path = worktree_path(branch_name)
@@ -64,7 +72,23 @@ def create_worktree(branch_name, new_branch: false)
     execute_cmd "git worktree add #{path} #{branch_name}"
   end
 
+  # Call post-create hook if it exists
+  call_hook('post-create', path, branch_name)
+
   path
+end
+
+def remove_worktree(worktree_name)
+  path = worktree_path(worktree_name)
+
+  # Call pre-delete hook
+  call_hook('pre-delete', path, worktree_name)
+
+  # Remove worktree
+  execute_cmd "git worktree remove #{path}"
+
+  # Call post-delete hook
+  call_hook('post-delete', path, worktree_name)
 end
 
 def switch_to_worktree(branch_name)
