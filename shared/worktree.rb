@@ -41,14 +41,17 @@ def ensure_worktrees_dir
   dir = File.join(git_root, WORKTREE_DIR)
   Dir.mkdir(dir) unless File.directory?(dir)
 
-  # Ensure .worktrees is in .gitignore
+  # Check if .worktrees is already ignored (in .gitignore or .git/info/exclude)
   gitignore = File.join(git_root, '.gitignore')
-  if File.exist?(gitignore)
-    content = File.read(gitignore)
-    unless content.include?('.worktrees')
-      File.open(gitignore, 'a') { |f| f.puts "\n# Git worktrees\n.worktrees/" }
-      puts "Added .worktrees/ to .gitignore"
-    end
+  git_exclude = File.join(git_root, '.git', 'info', 'exclude')
+
+  in_gitignore = File.exist?(gitignore) && File.read(gitignore).include?('.worktrees')
+  in_exclude = File.exist?(git_exclude) && File.read(git_exclude).include?('.worktrees')
+
+  # Only add to .gitignore if not already ignored in either place
+  if !in_gitignore && !in_exclude && File.exist?(gitignore)
+    File.open(gitignore, 'a') { |f| f.puts "\n# Git worktrees\n.worktrees/" }
+    puts "Added .worktrees/ to .gitignore"
   end
 end
 
