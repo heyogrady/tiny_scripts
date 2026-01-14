@@ -1,0 +1,37 @@
+#!/usr/bin/env ruby
+
+# db-skip-on: Configure database.yml for worktree and set skip-worktree
+#
+# Run this after a rebase to re-apply worktree database config.
+# Use `db-skip-off` before rebase to clear local changes.
+#
+# Usage:
+#   db-skip-on
+
+require_relative '../shared/common'
+
+DATABASE_YML = 'config/database.yml'
+
+unless File.exist?(DATABASE_YML)
+  warn "Error: Not in a Rails project (no #{DATABASE_YML})"
+  exit 1
+end
+
+puts "Configuring database.yml for worktree..."
+
+# Update database.yml to use DATABASE_NAME env var (same logic as setup-worktree)
+content = File.read(DATABASE_YML)
+
+if content.include?('database: crm_development')
+  content.gsub!('database: crm_development', "database: <%= ENV.fetch('DATABASE_NAME', 'crm') %>_development")
+  content.gsub!('database: crm_test<%= ENV', "database: <%= ENV.fetch('DATABASE_NAME', 'crm') %>_test<%= ENV")
+  File.write(DATABASE_YML, content)
+  puts "  ✓ database.yml updated"
+else
+  puts "  ✓ database.yml already configured"
+end
+
+# Set skip-worktree
+execute_cmd "git update-index --skip-worktree #{DATABASE_YML}"
+
+puts "Done! skip-worktree is now set."

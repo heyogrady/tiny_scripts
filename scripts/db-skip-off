@@ -1,0 +1,26 @@
+#!/usr/bin/env ruby
+
+# db-skip-off: Restore database.yml to committed state for rebasing
+#
+# Run this before a rebase to clear local database.yml changes.
+# After rebase, run `db-skip-on` to re-apply worktree config.
+#
+# Usage:
+#   db-skip-off
+
+require_relative '../shared/common'
+
+DATABASE_YML = 'config/database.yml'
+
+unless File.exist?(DATABASE_YML)
+  warn "Error: Not in a Rails project (no #{DATABASE_YML})"
+  exit 1
+end
+
+puts "Removing skip-worktree and restoring database.yml..."
+
+execute_cmd "git update-index --no-skip-worktree #{DATABASE_YML}"
+execute_cmd "git checkout #{DATABASE_YML}"
+
+puts "Done! You can now rebase."
+puts "After rebase, run: db-skip-on"
