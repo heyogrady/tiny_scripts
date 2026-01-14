@@ -1,0 +1,213 @@
+#!/usr/bin/env ruby
+
+# git-brrm: Remove local branch(es) interactively
+#
+# Usage:
+#   git brrm              # Interactive removal, pre-selects merged branches
+#   git brrm --all        # Interactive removal, nothing pre-selected
+#   git brrm <branch>     # Remove single branch
+
+require_relative '../shared/terminal_ui'
+require 'json'
+require 'time'
+
+def get_branch_status(branch)
+  status = {
+    merged: false,
+    ahead: 0,
+    behind: 0,
+    last_commit: nil,
+    stale_days: 0,
+    pr_state: nil,
+    safe_to_remove: false,
+    hint: nil
+  }
+
+  # Check if merged into main
+  merged_branches = `git branch --merged main 2>/dev/null`.split("\n").map(&:strip).map { |b| b.sub(/^\* /, '') }
+  status[:merged] = merged_branches.include?(branch)
+
+  # Get commits ahead/behind main
+  ahead_behind = `git rev-list --left-right --count main...#{branch} 2>/dev/null`.strip.split("\t")
+  if ahead_behind.length == 2
+    status[:behind] = ahead_behind[0].to_i
+    status[:ahead] = ahead_behind[1].to_i
+  end
+
+  # Get last commit date
+  last_commit_ts = `git log -1 --format=%ct #{branch} 2>/dev/null`.strip.to_i
+  if last_commit_ts > 0
+    status[:last_commit] = Time.at(last_commit_ts)
+    status[:stale_days] = ((Time.now - status[:last_commit]) / 86400).to_i
+  end
+
+  # Check PR status using gh CLI
+  pr_json = `gh pr list --head "#{branch}" --state all --json state,mergedAt --limit 1 2>/dev/null`.strip
+  unless pr_json.empty? || pr_json == '[]'
+    pr_data = JSON.parse(pr_json).first
+    status[:pr_state] = pr_data['state']
+  end
+
+  # Build hint and determine if safe to remove
+  hints = []
+
+  # Merged status
+  if status[:merged]
+    hints << "merged"
+    status[:safe_to_remove] = true
+  elsif status[:pr_state] == 'MERGED'
+    hints << "PR merged"
+    status[:safe_to_remove] = true
+  elsif status[:pr_state] == 'CLOSED'
+    hints << "PR closed"
+    status[:safe_to_remove] = true
+  elsif status[:pr_state] == 'OPEN'
+    hints << "PR open"
+  end
+
+  # Ahead/behind
+  if status[:ahead] > 0 && !status[:merged] && status[:pr_state] != 'MERGED'
+    hints << "#{status[:ahead]} ahead"
+    status[:safe_to_remove] = false  # Has unmerged work
+  end
+  if status[:behind] > 0
+    hints << "#{status[:behind]} behind"
+  end
+
+  # Staleness
+  if status[:stale_days] > 0
+    if status[:stale_days] >= 365
+      years = status[:stale_days] / 365
+      hints << "#{years}y old"
+    elsif status[:stale_days] >= 30
+      months = status[:stale_days] / 30
+      hints << "#{months}mo old"
+    elsif status[:stale_days] >= 7
+      weeks = status[:stale_days] / 7
+      hints << "#{weeks}w old"
+    else
+      hints << "#{status[:stale_days]}d old"
+    end
+  end
+
+  status[:hint] = hints.empty? ? nil : "(#{hints.join(', ')})"
+  status
+end
+
+def get_local_branches
+  current = `git branch --show-current 2>/dev/null`.strip
+  branches = `git branch 2>/dev/null`.split("\n").map(&:strip).map { |b| b.sub(/^\* /, '') }
+
+  # Exclude current branch and main/master
+  branches.reject { |b| b == current || b == 'main' || b == 'master' }
+end
+
+def interactive_remove_branches(preselect_merged: true)
+  branches = get_local_branches
+
+  if branches.empty?
+    warn 'No branches to clean up (excluding current and main/master)'
+    exit 0
+  end
+
+  # Build items with status (use stderr for immediate feedback)
+  $stderr.print "Checking branch status"
+  items = branches.map do |branch|
+    $stderr.print "."
+    status = get_branch_status(branch)
+    {
+      label: branch,
+      value: branch,
+      selected: preselect_merged && status[:safe_to_remove],
+      hint: status[:hint],
+      stale_days: status[:stale_days]
+    }
+  end
+  $stderr.puts # newline after dots
+
+  # Sort: safe to remove first, then by staleness (most stale first)
+  items.sort_by! do |item|
+    [
+      item[:selected] ? 0 : 1,
+      -(item[:stale_days] || 0)
+    ]
+  end
+
+  # Clear the "Checking..." line and dots
+  $stderr.print "\e[A\e[2K"
+
+  # Show interactive selection
+  selected = TerminalUI.multi_select("Select branches to delete:", items)
+
+  if selected.empty?
+    warn 'No branches selected. Aborted.'
+    exit 0
+  end
+
+  warn
+  warn "Will delete #{selected.length} branch(es):"
+  selected.each { |name| warn "  - #{name}" }
+  warn
+  $stderr.print "Proceed? [y/N] "
+
+  response = $stdin.gets&.strip&.downcase
+  unless response == 'y'
+    warn 'Aborted.'
+    exit 0
+  end
+
+  warn
+  selected.each do |branch|
+    warn "Deleting #{branch}..."
+    # Use -D to force delete (in case not fully merged)
+    result = system("git branch -D #{branch} 2>/dev/null")
+    if result
+      warn "  ✓ Deleted"
+    else
+      warn "  ✗ Failed to delete"
+    end
+  end
+
+  warn
+  warn "Done. Deleted #{selected.length} branch(es)."
+end
+
+def remove_single_branch(branch)
+  current = `git branch --show-current 2>/dev/null`.strip
+
+  if branch == current
+    warn "Error: Cannot delete current branch '#{branch}'"
+    exit 1
+  end
+
+  if branch == 'main' || branch == 'master'
+    warn "Error: Cannot delete '#{branch}' branch"
+    exit 1
+  end
+
+  # Check branch exists
+  exists = system("git show-ref --verify --quiet refs/heads/#{branch}")
+  unless exists
+    warn "Error: Branch '#{branch}' does not exist"
+    exit 1
+  end
+
+  warn "Deleting branch '#{branch}'..."
+  result = system("git branch -D #{branch}")
+  if result
+    warn 'Done'
+  else
+    warn 'Failed to delete branch'
+    exit 1
+  end
+end
+
+# Main
+case ARGV[0]
+when '--all'
+  interactive_remove_branches(preselect_merged: false)
+when nil
+  interactive_remove_branches(preselect_merged: true)
+else
+  remove_single_branch(ARGV[0])
+end

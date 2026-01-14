@@ -4,69 +4,135 @@
 #
 # Usage:
 #   git wtrm <worktree-name>   # Remove single worktree
-#   git wtrm --merged          # Remove all worktrees with merged PRs
+#   git wtrm --merged          # Interactive removal of worktrees (pre-selects merged)
+#   git wtrm --all             # Interactive removal of all worktrees
 
 require_relative '../shared/worktree'
+require_relative '../shared/terminal_ui'
 require 'json'
 
-def remove_merged_worktrees
-  worktrees = list_worktrees.select { |wt| wt[:path]&.include?('.worktrees') }
+def get_worktree_status(branch)
+  status = {
+    pr_state: nil,
+    pr_merged_at: nil,
+    remote_exists: false,
+    commits_ahead: 0,
+    safe_to_remove: false,
+    hint: nil
+  }
 
-  if worktrees.empty?
-    puts 'No worktrees found'
-    exit 0
-  end
+  # Check PR status using gh CLI
+  pr_json = `gh pr list --head "#{branch}" --state all --json state,mergedAt --limit 1 2>/dev/null`.strip
 
-  # Check each worktree's PR status
-  to_remove = []
-  worktrees.each do |wt|
-    branch = wt[:branch]
-    next if branch.nil?
+  if pr_json.empty? || pr_json == '[]'
+    # No PR - check if remote branch exists
+    status[:remote_exists] = system("git ls-remote --heads origin #{branch} > /dev/null 2>&1")
 
-    # Check PR status using gh CLI
-    pr_json = `gh pr list --head "#{branch}" --state all --json state --limit 1 2>/dev/null`.strip
+    # Check commits ahead of main
+    ahead = `git rev-list --count main..#{branch} 2>/dev/null`.strip.to_i
+    status[:commits_ahead] = ahead
 
-    if pr_json.empty? || pr_json == '[]'
-      # No PR - check if remote branch exists
-      remote_exists = system("git ls-remote --heads origin #{branch} > /dev/null 2>&1")
-      to_remove << { worktree: wt, reason: 'Remote branch deleted' } unless remote_exists
+    if !status[:remote_exists] && ahead == 0
+      status[:safe_to_remove] = true
+      status[:hint] = "(merged into main, no remote)"
+    elsif !status[:remote_exists] && ahead > 0
+      status[:safe_to_remove] = false
+      status[:hint] = "(#{ahead} unpushed commits!)"
+    elsif status[:remote_exists] && ahead == 0
+      status[:safe_to_remove] = true
+      status[:hint] = "(merged into main)"
     else
-      pr_data = JSON.parse(pr_json).first
-      case pr_data['state']
-      when 'MERGED'
-        to_remove << { worktree: wt, reason: 'PR merged' }
-      when 'CLOSED'
-        to_remove << { worktree: wt, reason: 'PR closed' }
-      end
+      status[:safe_to_remove] = false
+      status[:hint] = "(#{ahead} commits ahead, has remote)"
+    end
+  else
+    pr_data = JSON.parse(pr_json).first
+    status[:pr_state] = pr_data['state']
+    status[:pr_merged_at] = pr_data['mergedAt']
+
+    case status[:pr_state]
+    when 'MERGED'
+      date = status[:pr_merged_at]&.split('T')&.first || 'unknown'
+      status[:safe_to_remove] = true
+      status[:hint] = "(PR merged #{date})"
+    when 'CLOSED'
+      status[:safe_to_remove] = true
+      status[:hint] = "(PR closed)"
+    when 'OPEN'
+      status[:safe_to_remove] = false
+      status[:hint] = "(PR open)"
     end
   end
 
-  if to_remove.empty?
-    puts 'No worktrees to clean up. All have open PRs or active branches.'
+  status
+end
+
+def interactive_remove_worktrees(preselect_merged: true)
+  worktrees = list_worktrees.select { |wt| wt[:path]&.include?('.worktrees') }
+
+  if worktrees.empty?
+    warn 'No worktrees found in .worktrees/'
     exit 0
   end
 
-  puts "Found #{to_remove.length} worktree(s) to remove:"
-  to_remove.each do |item|
-    name = File.basename(item[:worktree][:path])
-    puts "  #{name} (#{item[:reason]})"
+  # Build items with status (use stderr for immediate feedback)
+  $stderr.print "Checking worktree status"
+  items = worktrees.map do |wt|
+    $stderr.print "."
+    branch = wt[:branch]
+    name = File.basename(wt[:path])
+
+    if branch.nil?
+      {
+        label: name,
+        value: name,
+        selected: false,
+        hint: "(detached HEAD)"
+      }
+    else
+      status = get_worktree_status(branch)
+      {
+        label: name,
+        value: name,
+        selected: preselect_merged && status[:safe_to_remove],
+        hint: status[:hint]
+      }
+    end
   end
-  puts
-  print 'Proceed? [y/N] '
+  $stderr.puts # newline after dots
+
+  # Clear the "Checking..." line and dots
+  $stderr.print "\e[A\e[2K"
+
+  # Show interactive selection
+  selected = TerminalUI.multi_select("Select worktrees to remove:", items)
+
+  if selected.empty?
+    warn 'No worktrees selected. Aborted.'
+    exit 0
+  end
+
+  warn
+  warn "Will remove #{selected.length} worktree(s):"
+  selected.each { |name| warn "  - #{name}" }
+  warn
+  $stderr.print "Proceed? [y/N] "
 
   response = $stdin.gets&.strip&.downcase
   unless response == 'y'
-    puts 'Aborted.'
+    warn 'Aborted.'
     exit 0
   end
 
-  to_remove.each do |item|
-    name = File.basename(item[:worktree][:path])
+  warn
+  selected.each do |name|
     warn "Removing #{name}..."
     remove_worktree(name)
+    warn "  ✓ Removed"
   end
 
-  puts "Done. Removed #{to_remove.length} worktree(s)."
+  warn
+  warn "Done. Removed #{selected.length} worktree(s)."
 end
 
 def remove_single_worktree(worktree_name)
@@ -91,11 +157,15 @@ def remove_single_worktree(worktree_name)
 end
 
 # Main
-if ARGV[0] == '--merged'
-  remove_merged_worktrees
-elsif ARGV[0].nil?
-  puts 'Usage: git wtrm <worktree-name>'
-  puts '       git wtrm --merged  # Remove all merged/closed worktrees'
+case ARGV[0]
+when '--merged'
+  interactive_remove_worktrees(preselect_merged: true)
+when '--all'
+  interactive_remove_worktrees(preselect_merged: false)
+when nil
+  warn 'Usage: git wtrm <worktree-name>'
+  warn '       git wtrm --merged  # Interactive, pre-selects merged worktrees'
+  warn '       git wtrm --all     # Interactive, nothing pre-selected'
   exit 1
 else
   remove_single_worktree(ARGV[0])
