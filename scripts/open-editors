@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# open-editors: Open the current directory in Cursor and Sublime Merge
+#
+# Usage:
+#   open-editors
+
+cursor .
+smerge -n "$(pwd)"
