@@ -98,6 +98,6 @@ def switch_to_worktree(branch_name)
   path = worktree_path(branch_name)
 
   # Output cd command for shell to eval
-  # Also open in Cursor
-  puts "cd #{path} && cursor ."
+  # Also open in Cursor and Sublime Merge
+  puts "cd #{path} && cursor . && smerge -n \"$(pwd)\""
 end
