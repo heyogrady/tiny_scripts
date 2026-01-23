@@ -17,7 +17,7 @@ gwt <branch>            # Switch to branch (creates worktree if needed)
 gwtc <new-branch>       # Create branch + worktree, switch to it
 ```
 
-Both commands open Cursor automatically after switching.
+Both commands open Cursor and Sublime Merge automatically after switching.
 
 ## Examples
 
