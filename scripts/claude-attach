@@ -9,5 +9,5 @@ WINDOW=$(cat /tmp/claude-target 2>/dev/null || echo 1)
 SESSION="claude"
 
 # Attach to session and select window
-# -d detaches other clients so we can take over
-exec tmux attach-session -d -t "$SESSION" \; select-window -t "$WINDOW"
+# Multiple clients can attach simultaneously
+exec /opt/homebrew/bin/tmux attach-session -t "$SESSION" \; select-window -t "$WINDOW"
