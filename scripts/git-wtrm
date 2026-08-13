@@ -11,7 +11,13 @@ require_relative '../shared/worktree'
 require_relative '../shared/terminal_ui'
 require 'json'
 
-def get_worktree_status(branch)
+def worktree_has_changes?(worktree_path)
+  return false unless worktree_path && File.directory?(worktree_path)
+
+  !`git -C #{worktree_path} status --porcelain 2>/dev/null`.strip.empty?
+end
+
+def get_worktree_status(branch, worktree_path: nil)
   status = {
     pr_state: nil,
     pr_merged_at: nil,
@@ -28,19 +34,41 @@ def get_worktree_status(branch)
     # No PR - check if remote branch exists
     status[:remote_exists] = system("git ls-remote --heads origin #{branch} > /dev/null 2>&1")
 
-    # Check commits ahead of main
+    # Check commits ahead of AND behind main
     ahead = `git rev-list --count main..#{branch} 2>/dev/null`.strip.to_i
+    behind = `git rev-list --count #{branch}..main 2>/dev/null`.strip.to_i
+    has_changes = worktree_has_changes?(worktree_path)
     status[:commits_ahead] = ahead
 
-    if !status[:remote_exists] && ahead == 0
-      status[:safe_to_remove] = true
-      status[:hint] = "(merged into main, no remote)"
+    if ahead == 0 && behind == 0 && !status[:remote_exists]
+      # Branch is at exact same commit as main — just created, not merged
+      if has_changes
+        status[:safe_to_remove] = false
+        status[:hint] = "(no commits, has local changes)"
+      else
+        status[:safe_to_remove] = false
+        status[:hint] = "(just created, no commits yet)"
+      end
+    elsif !status[:remote_exists] && ahead == 0 && behind > 0
+      # Branch has no unique commits but main has moved on — actually merged
+      if has_changes
+        status[:safe_to_remove] = false
+        status[:hint] = "(merged into main, but has local changes!)"
+      else
+        status[:safe_to_remove] = true
+        status[:hint] = "(merged into main, no remote)"
+      end
     elsif !status[:remote_exists] && ahead > 0
       status[:safe_to_remove] = false
       status[:hint] = "(#{ahead} unpushed commits!)"
     elsif status[:remote_exists] && ahead == 0
-      status[:safe_to_remove] = true
-      status[:hint] = "(merged into main)"
+      if has_changes
+        status[:safe_to_remove] = false
+        status[:hint] = "(merged into main, but has local changes!)"
+      else
+        status[:safe_to_remove] = true
+        status[:hint] = "(merged into main)"
+      end
     else
       status[:safe_to_remove] = false
       status[:hint] = "(#{ahead} commits ahead, has remote)"
@@ -90,7 +118,7 @@ def interactive_remove_worktrees(preselect_merged: true)
         hint: "(detached HEAD)"
       }
     else
-      status = get_worktree_status(branch)
+      status = get_worktree_status(branch, worktree_path: wt[:path])
       {
         label: name,
         value: name,

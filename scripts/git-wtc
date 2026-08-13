@@ -16,7 +16,7 @@ branch = ARGV[0]
 if branch.nil?
   puts "Usage: git wtc <new-branch-name>"
   puts ""
-  puts "Creates a new branch with its own worktree in .worktrees/<branch>/"
+  puts "Creates a new branch with its own worktree in #{WORKTREE_ROOT}/<repo>/<branch>/"
   exit 1
 end
 

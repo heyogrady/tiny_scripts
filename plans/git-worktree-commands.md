@@ -1,5 +1,16 @@
 **PLAN COMPLETED ON 2025-12-12**
 
+**LAYOUT SUPERSEDED ON 2026-08-12.** Everything below describes worktrees living at
+`<repo>/.worktrees/<branch>/`, gitignored, inside the repo. They no longer do. Worktrees now live
+at `~/worktrees/<repo>/<branch>/` (override with `GIT_WT_ROOT`), and nothing is added to
+`.gitignore` anymore.
+
+Keeping a full second checkout inside the repo meant every filesystem walk rooted at the repo —
+editors, file watchers, search, and the `entire` CLI's per-prompt hook — traversed every branch's
+entire tree. In crm that reached 179k files and the per-prompt hook hung past 45 seconds; after the
+move it was 20,665 files and 1.31 seconds. The single decision point is `WORKTREE_ROOT` in
+`shared/worktree.rb`. The rest of this document is accurate history, not current behavior.
+
 ---
 
 # Git Worktree Commands for Isolated Branch Development
