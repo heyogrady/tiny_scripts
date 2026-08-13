@@ -1,0 +1,15 @@
+#!/bin/zsh
+# Opens a new Ghostty tab and runs claude --continue --fork-session
+# Usage: claude-fork-tab [working-directory]
+dir="${1:-$(pwd)}"
+
+osascript -e '
+tell application "System Events"
+    tell process "Ghostty"
+        click menu item "New Tab" of menu "File" of menu bar 1
+    end tell
+    delay 0.2
+    keystroke "cd '"$dir"' && claude --continue --fork-session
+"
+end tell
+'

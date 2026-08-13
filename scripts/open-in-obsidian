@@ -1,0 +1,31 @@
+#!/bin/bash
+# open-in-obsidian - Open a vault file in Obsidian
+#
+# Usage:
+#   open-in-obsidian "Projects/Some Note.md"
+#   open-in-obsidian "Inbox/Quick Thought.md"
+#
+# Takes a vault-relative path and opens it in Obsidian.
+# Launches Obsidian if not already running.
+
+VAULT="second-brain"
+
+if [ -z "$1" ]; then
+    echo "Usage: open-in-obsidian <vault-relative-path>"
+    exit 1
+fi
+
+# Strip leading slash and .md extension (Obsidian URI doesn't need them)
+FILE="${1#/}"
+FILE="${FILE%.md}"
+
+# URL-encode the file path
+ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$FILE'))")
+
+# Launch Obsidian if not running
+if ! pgrep -q Obsidian; then
+    open -a Obsidian
+    sleep 2
+fi
+
+open "obsidian://open?vault=${VAULT}&file=${ENCODED}"

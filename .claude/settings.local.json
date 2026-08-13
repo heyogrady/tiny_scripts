@@ -10,7 +10,23 @@
       "Bash(git worktree:*)",
       "Bash(git branch:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(tailscale status:*)",
+      "Bash(/Applications/Tailscale.app/Contents/MacOS/Tailscale status:*)",
+      "Bash(/usr/local/bin/tailscale status --self)",
+      "Bash(scutil --dns:*)",
+      "Bash(tmux ls:*)",
+      "WebSearch",
+      "Bash(brew install:*)",
+      "Bash(chmod:*)",
+      "Bash(curl:*)",
+      "Bash(tmux list-windows:*)",
+      "Bash(ttyd:*)"
     ]
-  }
+  },
+  "disabledMcpjsonServers": [
+    "google-calendar"
+  ]
 }

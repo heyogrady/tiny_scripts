@@ -1,0 +1,27 @@
+#!/bin/bash
+# Web terminal for Claude tmux sessions
+# Starts ttyd on port 7681, attaching to the claude tmux session
+
+PORT="${1:-7681}"
+SESSION="claude"
+
+# Kill any existing ttyd on this port
+pkill -f "ttyd.*-p $PORT" 2>/dev/null
+
+# Credentials (change these!)
+USER="claude"
+PASS="changeme"  # TODO: Change this password!
+
+# Start ttyd with:
+# - Basic auth for security
+# - Writable mode (so you can type)
+# - Reconnect on disconnect
+# Use claude-attach script which reads /tmp/claude-target for the window number
+ATTACH_SCRIPT="$HOME/tiny_scripts/scripts/claude-attach"
+
+exec ttyd -p "$PORT" \
+    -W \
+    -c "$USER:$PASS" \
+    -t fontSize=16 \
+    -t 'theme={"background":"#1e1e1e"}' \
+    "$ATTACH_SCRIPT"

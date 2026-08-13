@@ -1,0 +1,17 @@
+#!/bin/zsh
+# Daily append-only git snapshot of the second-brain vault.
+# Stages everything and commits if anything changed. Never pushes, never
+# branches, never checks out — backstop version history only.
+set -euo pipefail
+
+VAULT="$HOME/workspace/second-brain"
+cd "$VAULT"
+
+git add -A
+if git diff --cached --quiet; then
+  echo "$(date '+%F %T') nothing to snapshot"
+  exit 0
+fi
+
+git commit -q -m "Vault Snapshot $(date +%F)"
+echo "$(date '+%F %T') committed snapshot $(git rev-parse --short HEAD)"

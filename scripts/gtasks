@@ -1,0 +1,188 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "google-api-python-client>=2.0",
+#   "google-auth-oauthlib>=1.0",
+#   "google-auth-httplib2>=0.2",
+# ]
+# ///
+"""
+gtasks - Read Google Tasks from the command line.
+
+Self-contained via uv (deps declared inline above). First run opens a browser
+to authorize read-only access; the token is cached so later runs are silent.
+
+Setup (one time):
+  1. console.cloud.google.com -> create/select a project
+  2. APIs & Services -> Library -> enable "Tasks API"
+  3. OAuth consent screen -> External -> add yourself as a Test user
+     (then "Publish app" to avoid the 7-day refresh-token expiry)
+  4. Credentials -> Create OAuth client ID -> Desktop app -> download JSON
+  5. Save that file as ~/.config/gtasks/client_secret.json
+
+Usage:
+  gtasks lists                       # show all task lists (title + id)
+  gtasks tasks                       # tasks from every list (markdown, with notes)
+  gtasks tasks --list "House"        # only the list whose title matches "House"
+  gtasks tasks --list-id <id>        # only that list, by id
+  gtasks tasks --show-completed      # include completed/hidden tasks
+  gtasks tasks --json                # raw JSON (full task objects)
+  gtasks auth                        # force re-authentication
+"""
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+
+# Read-only is all we need to pull tasks + their notes. Bump to
+# ".../auth/tasks" later if you ever want this script to create/edit tasks.
+SCOPES = ["https://www.googleapis.com/auth/tasks.readonly"]
+
+CONFIG_DIR = Path(os.environ.get("GTASKS_CONFIG_DIR", Path.home() / ".config" / "gtasks"))
+CLIENT_SECRET = CONFIG_DIR / "client_secret.json"
+TOKEN = CONFIG_DIR / "token.json"
+
+
+def die(msg):
+    print(f"gtasks: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_service(force_auth=False):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    creds = None
+
+    if TOKEN.exists() and not force_auth:
+        creds = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
+
+    if not creds or not creds.valid or force_auth:
+        if creds and creds.expired and creds.refresh_token and not force_auth:
+            creds.refresh(Request())
+        else:
+            if not CLIENT_SECRET.exists():
+                die(
+                    f"missing OAuth client file: {CLIENT_SECRET}\n"
+                    "  Create a Desktop-app OAuth client in Google Cloud Console\n"
+                    "  (Tasks API enabled), download the JSON, and save it there.\n"
+                    "  See the header of this script for the full setup steps."
+                )
+            flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRET), SCOPES)
+            print("Opening browser to authorize Google Tasks access...", file=sys.stderr)
+            creds = flow.run_local_server(port=0)
+        TOKEN.write_text(creds.to_json())
+        os.chmod(TOKEN, 0o600)
+
+    return build("tasks", "v1", credentials=creds, cache_discovery=False)
+
+
+def fetch_lists(svc):
+    out, token = [], None
+    while True:
+        resp = svc.tasklists().list(maxResults=100, pageToken=token).execute()
+        out.extend(resp.get("items", []))
+        token = resp.get("nextPageToken")
+        if not token:
+            return out
+
+
+def fetch_tasks(svc, list_id, show_completed):
+    out, token = [], None
+    while True:
+        resp = (
+            svc.tasks()
+            .list(
+                tasklist=list_id,
+                showCompleted=show_completed,
+                showHidden=show_completed,
+                maxResults=100,
+                pageToken=token,
+            )
+            .execute()
+        )
+        out.extend(resp.get("items", []))
+        token = resp.get("nextPageToken")
+        if not token:
+            return out
+
+
+def pick_lists(all_lists, name, list_id):
+    if list_id:
+        match = [l for l in all_lists if l["id"] == list_id]
+        return match or die(f"no list with id {list_id}")
+    if name:
+        match = [l for l in all_lists if name.lower() in l["title"].lower()]
+        return match or die(f"no list whose title contains {name!r}")
+    return all_lists
+
+
+def render_markdown(lists_with_tasks):
+    blocks = []
+    for lst, tasks in lists_with_tasks:
+        lines = [f"## {lst['title']}"]
+        if not tasks:
+            lines.append("_(no tasks)_")
+        for t in tasks:
+            box = "x" if t.get("status") == "completed" else " "
+            lines.append(f"- [{box}] {t.get('title') or '(untitled)'}")
+            notes = (t.get("notes") or "").strip()
+            for nl in notes.splitlines():
+                lines.append(f"      {nl}")
+            if t.get("due"):
+                lines.append(f"      _due: {t['due'][:10]}_")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="gtasks", description="Read Google Tasks.")
+    sub = ap.add_subparsers(dest="cmd")
+
+    sub.add_parser("lists", help="list all task lists")
+    sub.add_parser("auth", help="force (re)authentication")
+
+    pt = sub.add_parser("tasks", help="list tasks (default command)")
+    pt.add_argument("--list", dest="name", help="filter by list title (substring)")
+    pt.add_argument("--list-id", dest="list_id", help="filter by exact list id")
+    pt.add_argument("--show-completed", action="store_true", help="include completed/hidden")
+    pt.add_argument("--json", action="store_true", help="raw JSON output")
+
+    # Default to `tasks` when no subcommand is given.
+    args = ap.parse_args(sys.argv[1:] or ["tasks"])
+
+    if args.cmd == "auth":
+        get_service(force_auth=True)
+        print("Authorized. Token saved to", TOKEN)
+        return
+
+    svc = get_service()
+    all_lists = fetch_lists(svc)
+
+    if args.cmd == "lists":
+        if getattr(args, "json", False):
+            print(json.dumps(all_lists, indent=2))
+        else:
+            for l in all_lists:
+                print(f"{l['title']}\t{l['id']}")
+        return
+
+    chosen = pick_lists(all_lists, args.name, args.list_id)
+    lists_with_tasks = [(l, fetch_tasks(svc, l["id"], args.show_completed)) for l in chosen]
+
+    if args.json:
+        print(json.dumps(
+            [{"list": l, "tasks": t} for l, t in lists_with_tasks], indent=2
+        ))
+    else:
+        print(render_markdown(lists_with_tasks))
+
+
+if __name__ == "__main__":
+    main()

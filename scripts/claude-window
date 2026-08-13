@@ -1,0 +1,12 @@
+#!/bin/zsh
+# Opens a new solo Ghostty window in second-brain and runs ccd
+osascript -e '
+tell application "Ghostty" to activate
+delay 0.3
+tell application "System Events"
+    keystroke "n" using command down
+    delay 0.5
+    keystroke "cd ~/workspace/second-brain && ccd
+"
+end tell
+'

@@ -1,0 +1,87 @@
+#!/usr/bin/env /Users/patrickogrady/tiny_scripts/.venv/bin/python3
+"""Generate images with Gemini 3 Pro Image (highest quality)."""
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+from google import genai
+from google.genai import types
+
+
+def get_api_key():
+    result = subprocess.run(
+        ["security", "find-generic-password", "-s", "gemini-api-key", "-w"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print("Error: Could not read API key from macOS Keychain.", file=sys.stderr)
+        print("Store it with:", file=sys.stderr)
+        print(
+            '  security add-generic-password -a "$USER" -s "gemini-api-key" -w "YOUR_KEY"',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return result.stdout.strip()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate images with Gemini")
+    parser.add_argument("prompt", nargs="+", help="Image generation prompt")
+    parser.add_argument(
+        "-o", "--output", default="output", help="Output filename prefix (default: output)"
+    )
+    parser.add_argument(
+        "-s",
+        "--size",
+        choices=["1K", "2K", "4K"],
+        default="1K",
+        help="Output resolution (default: 1K)",
+    )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Use Gemini 2.5 Flash Image (faster, lower quality)",
+    )
+    args = parser.parse_args()
+
+    model = "gemini-2.5-flash-image" if args.fast else "gemini-3-pro-image-preview"
+    prompt_text = " ".join(args.prompt)
+
+    print(f"Model: {model}")
+    print(f"Size:  {args.size}")
+    print(f"Prompt: {prompt_text}")
+    print()
+
+    client = genai.Client(api_key=get_api_key())
+
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt_text,
+        config=types.GenerateContentConfig(
+            response_modalities=["TEXT", "IMAGE"],
+            image_config=types.ImageConfig(
+                image_size=args.size,
+            ),
+        ),
+    )
+
+    saved = 0
+    for i, part in enumerate(response.candidates[0].content.parts):
+        if part.inline_data:
+            ext = part.inline_data.mime_type.split("/")[-1]
+            filename = f"{args.output}_{saved}.{ext}" if saved > 0 else f"{args.output}.{ext}"
+            Path(filename).write_bytes(part.inline_data.data)
+            print(f"Saved: {filename}")
+            saved += 1
+        elif part.text:
+            print(part.text)
+
+    if saved == 0:
+        print("No images were generated. Try a different prompt.", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

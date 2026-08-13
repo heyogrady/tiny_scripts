@@ -1,0 +1,70 @@
+#!/bin/bash
+# cc - Open Claude Code in a new tmux window
+#
+# Usage:
+#   cc              # New tmux window for current directory, attach independently
+#   cc              # Run again = creates second window (auto-numbers: dir, dir-2, dir-3)
+#   cc mytask       # New tmux window named "mytask"
+#   cc -n           # New Ghostty window + new tmux window
+#   cc -n mytask    # New Ghostty window with named project
+#
+# Each terminal gets its own independent view - switching windows in one
+# doesn't affect the others. All windows are shared across all views.
+
+SESSION="claude"
+NEW_GHOSTTY=false
+TMUX_BIN="/opt/homebrew/bin/tmux"
+
+# Parse flags
+while getopts "n" opt; do
+    case $opt in
+        n) NEW_GHOSTTY=true ;;
+        *) ;;
+    esac
+done
+shift $((OPTIND-1))
+
+BASE_NAME="${1:-$(basename "$(pwd)")}"
+START_DIR="$(pwd)"
+
+# Ensure master claude session exists
+$TMUX_BIN has-session -t "$SESSION" 2>/dev/null || \
+    $TMUX_BIN new-session -d -s "$SESSION" -n main
+
+# Auto-number if window name already exists
+PROJECT="$BASE_NAME"
+if $TMUX_BIN list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "$PROJECT"; then
+    NUM=2
+    while $TMUX_BIN list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "${BASE_NAME}-${NUM}"; do
+        NUM=$((NUM + 1))
+    done
+    PROJECT="${BASE_NAME}-${NUM}"
+fi
+
+# Create new window in master session
+$TMUX_BIN new-window -a -t "$SESSION:" -n "$PROJECT"
+NEW_WIN=$($TMUX_BIN list-windows -t "$SESSION" -F '#{window_id}:#{window_name}' | grep ":${PROJECT}$" | tail -1 | cut -d: -f1)
+$TMUX_BIN send-keys -t "$NEW_WIN" "cd '$START_DIR' && claude" Enter
+
+if [ "$NEW_GHOSTTY" = true ]; then
+    # Open new Ghostty with grouped session
+    open -na Ghostty --args -e bash -lc "
+        # Create a grouped session (shares windows, independent view)
+        CLIENT_SESSION=\"claude-\$\$\"
+        $TMUX_BIN new-session -d -t $SESSION -s \"\$CLIENT_SESSION\"
+        $TMUX_BIN select-window -t \"\$CLIENT_SESSION:$PROJECT\"
+        exec $TMUX_BIN attach-session -t \"\$CLIENT_SESSION\"
+    "
+    echo "Opened new Ghostty window with Claude in '$PROJECT'"
+else
+    if [ -n "$TMUX" ]; then
+        # Already in tmux (in a grouped session) - just switch window
+        $TMUX_BIN select-window -t "$PROJECT"
+    else
+        # Not in tmux - create a grouped session for independent viewing
+        CLIENT_SESSION="claude-$$"
+        $TMUX_BIN new-session -d -t "$SESSION" -s "$CLIENT_SESSION"
+        $TMUX_BIN select-window -t "$CLIENT_SESSION:$PROJECT"
+        exec $TMUX_BIN attach-session -t "$CLIENT_SESSION"
+    fi
+fi
